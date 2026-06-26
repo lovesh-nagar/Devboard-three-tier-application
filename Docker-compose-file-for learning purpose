@@ -1,0 +1,137 @@
+```yaml
+# ==========================================================
+# Docker Compose File
+# This file defines all services (containers), networking,
+# volumes, and dependencies for the Three-Tier Application.
+# ==========================================================
+
+services:
+
+  # ========================================================
+  # PostgreSQL Database Container
+  # ========================================================
+  postgres:
+
+    # Pull the PostgreSQL 16 Alpine image from Docker Hub.
+    # Alpine is a lightweight Linux distribution that keeps
+    # the image size small.
+    image: postgres:16-alpine
+
+    # Load database credentials from the .env file.
+    # Docker Compose automatically replaces these variables.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+    # Persistent Storage
+    #
+    # pgdata:
+    # Stores database files even if the container is removed.
+    #
+    # ./init/postgres
+    # Contains SQL scripts.
+    # PostgreSQL automatically executes these scripts only
+    # when the database is initialized for the first time.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init/postgres:/docker-entrypoint-initdb.d:ro
+
+    # Health Check
+    #
+    # Docker checks every 10 seconds whether PostgreSQL is
+    # accepting connections.
+    #
+    # If the database is healthy, other services (like backend)
+    # can safely start.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Port Mapping
+    #
+    # Host Port : Container Port
+    #
+    # Access PostgreSQL from outside Docker using:
+    # localhost:5432
+    ports:
+      - "5432:5432"
+
+# ==========================================================
+# Backend Service (Golang REST API)
+# ==========================================================
+
+  backend:
+
+    # Build Docker image using the Dockerfile
+    # inside the backend directory.
+    build: ./backend
+
+    # Environment variables passed to the application.
+    #
+    # POSTGRES_URL uses "postgres" as hostname.
+    # Docker DNS automatically resolves it to the
+    # PostgreSQL container IP.
+    environment:
+      PORT: "${BACKEND_PORT}"
+      POSTGRES_URL: "postgres://devboard:devboard@postgres:5432/devboard?sslmode=disable"
+
+    # Wait until PostgreSQL becomes healthy.
+    #
+    # This prevents backend startup failures caused by
+    # database initialization delays.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # Host Port : Container Port
+    #
+    # Browser/API Client
+    #        │
+    # localhost:8081
+    #        │
+    # Backend Container:8080
+    ports:
+      - "8081:8080"
+
+# ==========================================================
+# Frontend Service (React + Vite)
+# ==========================================================
+
+  frontend:
+
+    # Build frontend image using the Dockerfile
+    # inside the frontend directory.
+    build: ./frontend
+
+    # Host Port : Container Port
+    #
+    # Browser
+    #    │
+    # localhost:8080
+    #    │
+    # Vite Preview Server:4173
+    ports:
+      - "8080:4173"
+
+    # Start frontend only after backend container starts.
+    depends_on:
+      - backend
+
+# ==========================================================
+# Docker Volume
+# ==========================================================
+
+volumes:
+
+  # Named Docker Volume
+  #
+  # Stores PostgreSQL data permanently.
+  #
+  # Even if the postgres container is deleted,
+  # the database files remain safe inside this volume.
+  pgdata:
+```
